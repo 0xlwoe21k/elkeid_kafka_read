@@ -20,7 +20,7 @@ message MQData{
   int64  time_pkg = 12;
   string psm_name = 13;
   string psm_path = 14;
-  string tags = 15;
+  bytes tags = 15;
 }
 
 message Item{

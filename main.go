@@ -2,10 +2,10 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/Shopify/sarama"
 	"google.golang.org/protobuf/proto"
 	"kfk/mq"
+	"log"
 	"os"
 	"os/signal"
 	"time"
@@ -33,6 +33,8 @@ func init() {
 func main() {
 	flag.Parse()
 
+	golog := log.New(os.Stdout, "[Elkeid]:", log.Ldate|log.Ltime|log.Lmicroseconds|log.Lshortfile)
+
 	cfg := sarama.NewConfig()
 	if sasl == "true" {
 		cfg.Net.SASL.Enable = true
@@ -42,54 +44,43 @@ func main() {
 		cfg.Net.DialTimeout = 5 * time.Second
 	}
 
-	fmt.Println(addr)
+	//fmt.Println(addr)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
 
 	consumer, err := sarama.NewConsumer([]string{addr}, cfg)
 	if err != nil {
-		fmt.Printf("fail to start consumer, err:%v\n", err)
+		golog.Printf("fail to start consumer, err:%v\n", err)
 		return
 	}
 
-	partitionConsumer, err := consumer.ConsumePartition(topic, 0, sarama.OffsetOldest) // 根据topic取到所有的分区
+	// get partitionId list
+	partitions, err := consumer.Partitions("my_topic")
 	if err != nil {
-		fmt.Printf("fail to get list of partition:err%v\n", err)
-		return
+		panic(err)
 	}
-
-	for {
-		select {
-		case msg := <-partitionConsumer.Messages():
-			md := &mq.MQData{}
-			if err = proto.Unmarshal(msg.Value, md); err != nil {
-				panic(err)
-			}
-			fmt.Println("KEY: %s VALUE: %s", msg.Key, md)
-
-		case <-signals:
-			os.Exit(0)
+	for _, partitionId := range partitions {
+		partitionConsumer, err := consumer.ConsumePartition(topic, partitionId, sarama.OffsetOldest) // 根据topic取到所有的分区
+		if err != nil {
+			golog.Printf("fail to get list of partition:err%v\n", err)
+			return
 		}
+
+		go func(pc *sarama.PartitionConsumer) {
+			for msg := range (*pc).Messages() {
+				md := &mq.MQData{}
+				if err = proto.Unmarshal(msg.Value, md); err != nil {
+					golog.Printf(err.Error())
+				}
+				golog.Println(md)
+			}
+		}(&partitionConsumer)
+
+	}
+	select {
+	case <-signals:
+		os.Exit(0)
 	}
 
-	//for partition := range partitionList { // 遍历所有的分区
-	//	// 针对每个分区创建一个对应的分区消费者
-	//	pc, err := consumer.ConsumePartition(topic, int32(partition), sarama.OffsetOldest)
-	//	if err != nil {
-	//		fmt.Printf("failed to start consumer for partition %d,err:%v\n", partition, err)
-	//		return
-	//	}
-	//	defer pc.AsyncClose()
-	//	// 异步从每个分区消费信息
-	//	md:=&mq.MQData{}
-	//	go func(sarama.PartitionConsumer) {
-	//		for msg := range pc.Messages() {
-	//			if err = proto.Unmarshal(msg.Value,md); err != nil {
-	//				panic(err)
-	//			}
-	//			fmt.Printf("Partition:%d Offset:%d Key:%v Value:%v\n", msg.Partition, msg.Offset, msg.Key, md)
-	//		}
-	//	}(pc)
-	//}
 }
