@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"github.com/Shopify/sarama"
 	"google.golang.org/protobuf/proto"
@@ -55,6 +56,7 @@ func main() {
 		return
 	}
 
+
 	// get partitionId list
 	partitions, err := consumer.Partitions("my_topic")
 	if err != nil {
@@ -68,12 +70,38 @@ func main() {
 		}
 
 		go func(pc *sarama.PartitionConsumer) {
+			var adata = make(map[string]interface{})
 			for msg := range (*pc).Messages() {
 				md := &mq.MQData{}
 				if err = proto.Unmarshal(msg.Value, md); err != nil {
 					golog.Printf(err.Error())
 				}
-				golog.Println(md)
+				adata["data_type"] = md.DataType
+				adata["timestamp"] = md.Timestamp
+				adata["agent_id"] = md.AgentId
+				adata["in_ipv4_list"] = md.InIpv4List
+				adata["ex_ipv4_list"] = md.ExIpv4List
+				adata["in_ipv6_list"] = md.InIpv6List
+				adata["ex_ipv6_list"] = md.ExIpv6List
+				adata["hostname"] = md.Hostname
+				adata["version"] = md.Version
+				adata["product"] = md.Product
+				adata["time_pkg"] = md.TimePkg
+				adata["psm_name"] = md.PsmName
+				adata["psm_path"] = md.PsmPath
+				adata["tags"] = md.Tags
+
+				if md.Body == nil{
+					os.Exit(0)
+				}
+				for k,v:=range md.Body.Fields{
+					adata[k] = v
+				}
+				buf ,err:= json.Marshal(adata)
+				if err != nil{
+					golog.Fatalln(err)
+				}
+				golog.Println(string(buf))
 			}
 		}(&partitionConsumer)
 
